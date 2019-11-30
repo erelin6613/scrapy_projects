@@ -1,3 +1,5 @@
+# back up verdion from 30-Nov-2019
+
 from scrapy import Spider
 from scrapy import Request
 import json
@@ -7,6 +9,10 @@ import pandas as pd
 from scrapy.selector import Selector
 from bs4 import BeautifulSoup
 import re
+import time
+import requests
+import xml.etree.ElementTree as etree
+import pyap
 
 def fill_data_base(frame):
 # Automatic filling the data base with scraped information
@@ -23,24 +29,22 @@ def fill_data_base(frame):
     cursor.close()
     connection.close()
 
-frame = pd.Series()
-
-
+#frame = pd.Series()
 # response.selector.xpath('//article').get()
 
 
 #frame = pd.read_csv('/home/val/coding/international_companies/trustpilot_data.csv')
 
 abbrs = { 'Alaska': 'AK', 'Alabama': 'AL', 'Arkansas': 'AR', 'Arizona': 'AZ', 'California': 'CA', 
-            'Colorado': 'CO', 'Connecticut': 'CT', 'District of Columbia': 'DC', 'Delaware': 'DE', 
+            'Colorado': 'CO', 'Connecticut': 'CT', 'District-of-Columbia': 'DC', 'Delaware': 'DE', 
             'Florida': 'FL', 'Georgia': 'GA', 'Iowa': 'IA', 'Idaho':    'ID', 
             'Illinois': 'IL', 'Indiana': 'IN', 'Kansas': 'KS', 'Kentucky': 'KY', 
             'Louisiana': 'LA', 'Massachusetts': 'MA', 'Maryland':   'MD', 'Maine': 'ME', 
             'Michigan': 'MI', 'Minnesota': 'MN', 'Missouri': 'MO', 'Mississippi': 'MS',
-            'Montana': 'MT', 'North Carolina': 'NC', 'North Dakota': 'ND', 'Nebraska': 'NE', 
-            'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'Nevada': 'NV', 
-            'New York': 'NY', 'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR',
-            'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC', 'South Dakota': 'SD', 
+            'Montana': 'MT', 'North-Carolina': 'NC', 'North-Dakota': 'ND', 'Nebraska': 'NE', 
+            'New-Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'Nevada': 'NV', 
+            'New-York': 'NY', 'Ohio': 'OH', 'Oklahoma': 'OK', 'Oregon': 'OR',
+            'Pennsylvania': 'PA', 'Rhode-Island': 'RI', 'South-Carolina': 'SC', 'South-Dakota': 'SD', 
             'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT', 'Virginia': 'VA', 
             'Vermont': 'VT', 'Washington': 'WA', 'Wisconsin': 'WI', 'West Virginia': 'WV',
             'Wyoming': 'WY'}
@@ -99,23 +103,8 @@ class BaseSpider(Spider):
         self.java_script = False
 
     def _load_urls(self):
-        urls = []
-        for state in abbrs.keys():
-            urls.append('https://www.usa.gov/state-consumer/{}'.format(state.lower()))
-        return urls
-
-        #file_path = '/home/val/coding/international_companies/trustpilot_data.csv'
-        #data = pd.read_csv(file_path) #, sep=';', index_col=None)
-        #urls = [link for link in data['url']]
-        #i = 0
-        #for u in list(data['url']):
-        #    if u == '' or str(u).lower() == 'nan':
-        #        continue
-        #    i += 1
-        #    urls.append(u)
-        #    if i >= 25:
-        #        break
-        #return urls
+        base = pd.read_csv('/home/val/coding/scrapy_projects/usa_gov_base.csv') 
+        return [link for link in base['website']]
 
     def start_requests(self):
         #return
@@ -131,10 +120,8 @@ class BaseSpider(Spider):
 
     def parse(self, response):
 
-        ### exctract phones
-        print(response.status, '---', response.url)
-        if response.status == 200:
-            print('-----------------')
+        def find_phones(response, contact_link):
+            #print('-----------------')
             soup = BeautifulSoup(response.body, 'lxml')
             for script in soup(["script", "style"]):
                 script.extract()
@@ -166,73 +153,112 @@ class BaseSpider(Spider):
             for each in phones:
                 for i in range(len(each)):
                     each[i] = numerize_string(replace_numbers(each[i]))
-            #print(phones) frame phones = [phone+'\n' for phone in phones if phone != None]
-
-
-            ### extract category, name
-            #soup = BeautifulSoup(response.)
-            soup = BeautifulSoup(response.body, 'lxml')
-            article = soup.find('article')
-            #print(article)
-            #header = article.find('header')
-            data_frame = pd.DataFrame()
-            levels = ['state', 'city', 'federal']
-            while article is not None:
-                try:
-                    for each in article.find_all_next('h2'):
-                        frame['category'] = each.get_text()
-                        frame['name'] = each.find_next('header').find_next('h3').get_text()
-                        for field in each.find_all_next('h3'):
-                            try:
-                                if field.get_text().endswith(':') == True:
-                                    if field.get_text().lower() == 'website' or field.get_text().lower() == 'email':
-                                        frame['email'] = field.find_next('a').get('href').strip()
-                                        frame['website'] = field.find_next('a').get('href').strip().split('@')[1]
-                                        #if '@' in field.find_next('a').get('href'):
-                                            #frame['website'] = field.find_next('a').get('href').strip().split('@')[1]
-
-                                    else:
-                                        frame[field.get_text().strip().lower().strip(':')] = field.find_next('p').get_text().strip()
-
-                            except Exception as e:
-                                print(e)
-                                pass
-
-                            frame['state'] = response.url.split('/')[-1]
-                            for city in cities:
-                                if city in frame['name']:
-                                    frame['city'] = city.lower()
-                            for level in levels:
-                                if level in frame['name']:
-                                    frame['level'] = level
-                        print(frame)
-                        check_and_write(frame)
-                        #data_frame = data_frame.append(frame, ignore_index=True)
-
-                        #print(responce.text)
-                        #for field in each.find_next('h3').descendants:
-                            #print(field.get_text())
-                            #if field.name == 'h3':
-                            #    frame[field.get_text()] = field.get_text()
-
-
-                except Exception:
-                    pass
-                article = article.find_next('h2')
-            #data_frame.to_csv('./trustpilot_data_gov_usa.csv')
-            #print(frame)
-
-
-            #print(text)
-
-    def check_and_write(frame):
-        columns=['category', 'name', 'website', 'toll free', 'email', 'tty', 'phone', 'state', 'level']
-        for col in columns:
+            phone_list = ''
+            for dim in phones:
+                for num in dim:
+                    try:
+                        if sum(c.isdigit() for c in num) > 6 and sum(c.isdigit() for c in num) < 11:
+                            phone_list = phone_list+num+'\n'
+                    except Exception:
+                        pass
             try:
-                assert len(frame[col]) > 0
-            except:
-                frame[col] = None
-        frame.to_csv('./trustpilot_data_gov_usa.csv', header=False, mode='a')
+                assert len(contact_link) > 0
+                if len(phone_list) == 0:
+                    request = Request(url=contact_link, callback=find_phones, meta={'splash': {'endpoint': 'render.html', 
+                                                                                                    'args': {'html': 1,
+                                                                                                            'png': 1,
+                                                                                                            'width': 600,
+                                                                                                            'render_all': 1,
+                                                                                                            'wait': 0.5}}})
+            except Exception:
+                pass
+
+            return phone_list
+
+        def find_address(responce, contact_link):
+            soup = BeautifulSoup(response.body, 'lxml')
+            for script in soup(["script", "style"]):
+                script.extract()
+            #text = soup.get_text().split('\n')
+            try:
+                address = str(pyap.parse(soup.get_text(), country='US')[0])
+
+            except Exception as e:
+                print(e)
+                address = ''
+            try:
+                assert len(contact_link) > 0
+                if len(address) == 0:
+                    request = Request(url=contact_link, callback=find_address, meta={'splash': {'endpoint': 'render.html', 
+                                                                                                    'args': {'html': 1,
+                                                                                                            'png': 1,
+                                                                                                            'width': 600,
+                                                                                                            'render_all': 1,
+                                                                                                            'wait': 0.5}}})
+            except Exception as e:
+                pass
+
+            return address
+
+        frame = pd.Series()
+
+        columns=['category', 'name', 'website', 'toll free', 'email', 'tty', 
+                'phone', 'state', 'level', 'name_2', 'complaint', 'state_2',
+                'city_2', 'address', 'phones_2']
+
+        ### exctract phones
+        print(response.status, '---', response.url)
+        if response.status == 200:   
+        #soup = BeautifulSoup(response.body, 'lxml')
+        #    new_urls = []
+        #    for link in soup.find_all('a'):
+        #        new_urls.append(link.get('href'))
+            current_url = response.url
+            for url in response.xpath('//a/@href').re(r'.+?complaint.+?'):
+                if url.__contains__('http'):
+                    complaint_link = url
+                else:
+                    tmp = current_url.split('/')
+                    if url.__contains__(tmp[2]):
+                        complaint_link = tmp[0] + url
+                    elif current_url[-1] == '/':
+                        complaint_link =current_url[:-1] + url
+                    else:
+                        complaint_link = current_url + url
+
+            for url in response.xpath('//a/@href').re(r'.+?contact.+?'):
+                if url.__contains__('http'):
+                    contact_link = url
+                else:
+                    tmp = current_url.split('/')
+                    if url.__contains__(tmp[2]):
+                        contact_link = tmp[0] + url
+                    elif current_url[-1] == '/':
+                        contact_link =current_url[:-1] + url
+                    else:
+                        contact_link = current_url + url
+            try:
+                assert len(contact_link) > 0
+            except Exception:
+                contact_link = ''
+            try:
+                frame['complaint_link'] = complaint_link
+            except UnboundLocalError:
+                frame['complaint_link'] = ''
+            frame['phones_2'] = find_phones(response, contact_link)
+            frame['address'] = find_address(response, contact_link)
+
+            print(frame)
+
+
+
+
+
+            #print(phones) 
+            #frame phones = [phone+'\n' for phone in phones if phone != None]
+
+            ### extract address/city/state
+
 
 
     def _get_url(self, responce):
@@ -260,6 +286,7 @@ class BaseSpider(Spider):
         return string.strip(' ')
 
 
+
     def _remove_unicode_chars(self, string):
         chars = [u'\xe2', u'\uFFFD', u'\xa0', u'\xf1', u'\u2013', u'\u2026',
                  u'\ufffd', u'\u2019', u'\xae', u'\xe9', u'\xc2', u'\u201d',
@@ -272,17 +299,17 @@ class BaseSpider(Spider):
         return string
 
 
-
-
-
 def replace_numbers(string):
     numbers = { 'hundred': 100, 'ninety':90, 'eighty': 80, 'seventy': 70, 'sixty': 60, 'fifty': 50, 'forty': 40, 
                 'thirty': 30, 'twenty': 20, 'ten': 10, 'nine': 9, 'eight': 8, 'seven': 7, 'six': 6, 'five': 5, 
                 'four': 4, 'three': 3, 'two': 2, 'one': 1, 'zero': 0}
 
     for key in numbers.keys():
-        if key in string:
-            string.replace(key, numbers[key])
+        try:
+            if key in string:
+                string.replace(key, numbers[key])
+        except Exception:
+            pass
 
     return string
 
@@ -301,36 +328,22 @@ def numerize_string(string):
     else:
         return None
 
-            #print(text)
+
+
 '''
 
 
-"""
-            header = soup.find("article").find('header')
-
-            while header is not None:
-                #print(header.prettify)
-                print(header.find('h2').get_text())
-                header = header.find_next_sibling()
-"""
-
-
-
-                try:
-                    frame['name'] = header.find_next('h3')[0]
-                except Exception:
-                    continue
-                for elem in article.get_text().split('\n'):
-                    if len(elem) > 3 and len(elem) < 40:
-                        if elem.endswith(':'):
-                            if elem.lower() == 'website:':
-                                frame[elem.lower()] = header.find('a').get('href')
-                                pass
-                            else:
-                                frame[elem.lower()] = header.find_next_sibling().text
-                                #get_text()
-                        else:
-                            pass
-                            frame['category'] = elem
+                if len(address)> 0:
+                    url_geo = "http://geocoder.ca/?locate={0}&geoit=xml".format(address)
+                    try:
+                        r = requests.get(url_geo, timeout=30)
+                        root = etree.fromstring(r.text)
+                    except Exception:
+                        pass
+                for child in root:
+                    if child.tag == 'error':
+                        for item in child:
+                            address = ''
+                        break
 
 '''
