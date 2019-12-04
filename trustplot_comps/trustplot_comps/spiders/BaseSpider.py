@@ -1,4 +1,14 @@
-# back up version from 03-Dec-2019
+""" 
+    Update from 04-Dec-2019
+
+    Spider developed to scrape gov sites for Pissed Consumer;
+    a good deal of functionality should be atributed to
+    Vitaliy Bulah. Generally scraping process is doing okay
+    although some improvement should be addressed:
+
+    - 403 error and ways to handle it
+    - optimization of the mechanism to parse meta tags and properties
+"""
 
 from scrapy import Spider
 from scrapy import Request
@@ -195,10 +205,10 @@ class BaseSpider(Spider):
                 script.extract()
             #text = soup.get_text().split('\n')
             try:
-                address = str(pyap.parse(soup.get_text(), country='US')[0])
+                address = str(pyap.parse(soup.text, country='US')[0])
 
             except Exception as e:
-                #print(e)
+                print(e)
                 address = None
             try:
                 assert len(contact_link) > 0
@@ -247,25 +257,26 @@ class BaseSpider(Spider):
             return email
 
         def find_state_city(address):
+            try:
+                if len(address) > 0:
+                    #if len(frame['city_2']) > 0 and len(frame['state_2']) > 0:
+                       #pass
+                    #else:
+                    for ct in cities:
+                        if ct in frame['address']:
+                            city = ct
+                            break
 
-            if len(address) > 0:
-                #if len(frame['city_2']) > 0 and len(frame['state_2']) > 0:
-                   #pass
-                #else:
-                for ct in cities:
-                    if ct in frame['address']:
-                        city = ct
-                        break
+                    for st in abbrs.keys():
+                        if st in frame['address'] or abbrs[st] in frame['address']:
+                            state = st
+                            break
+                else:
+                    city = None
+                    state = None
 
-                for st in abbrs.keys():
-                    if st in frame['address'] or abbrs[st] in frame['address']:
-                        state = st
-                        break
-            else:
-                city = None
-                state = None
-
-            return city, state
+            except Exception:
+                return None, None
 
         def find_name(responce, contact_link):
             metas = ['@property="og:site_name"', '@property="og:title"']
@@ -334,7 +345,10 @@ class BaseSpider(Spider):
             frame['phones_2'] = find_phones(response, contact_link)
             frame['address'] = find_address(response, contact_link)
             frame['email_2'] = find_email(response, contact_link)
-            frame['city_2'], frame['state_2'] = find_state_city(frame['address'])
+            try:
+                frame['city_2'], frame['state_2'] = find_state_city(frame['address'])
+            except Exception:
+                frame['city_2'], frame['state_2'] = None, None
             frame['name_2'] = find_name(response, contact_link)
 
 
@@ -467,8 +481,6 @@ def numerize_string(string):
                     return 'https://'+results[-2] + '.' + results[-1]
             except:
                 return url
-
-
         def get_sub_domain_name(url):
             try:
                 return urlparse(url).netloc
