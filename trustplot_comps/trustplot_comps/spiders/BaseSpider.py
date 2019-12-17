@@ -1,13 +1,12 @@
 """ 
-    Update from 04-Dec-2019
+    Update from 17-Dec-2019
 
-    Spider developed to scrape gov sites for Pissed Consumer;
+    Spider developed to scrape sites for Pissed Consumer;
     a good deal of functionality should be atributed to
-    Vitaliy Bulah. Generally scraping process is doing okay
-    although some improvement should be addressed:
+    Vitaliy Bulah.
 
-    - 403 error and ways to handle it
-    - optimization of the mechanism to parse meta tags and properties
+    Added task specific functionality to extract data
+    needed to accomplish the task at hand
 """
 
 from scrapy import Spider
@@ -24,15 +23,22 @@ import requests
 import xml.etree.ElementTree as etree
 import pyap
 from urllib.parse import urlparse
+from selenium import webdriver
 from shutil import which
 from scrapy_selenium import SeleniumRequest
+from address_parser import Parser
+
+address_parser = Parser()
 
 #yield SeleniumRequest(url=url, callback=self.parse_result)
 
-SELENIUM_DRIVER_NAME = 'chrome'
+"""SELENIUM_DRIVER_NAME = 'chrome'
 SELENIUM_DRIVER_EXECUTABLE_PATH = which('/home/val/coding/chromedriver')
-SELENIUM_DRIVER_ARGUMENTS=['-headless']
+SELENIUM_DRIVER_ARGUMENTS=['-headless']"""
 
+options = webdriver.ChromeOptions()
+options.add_argument('headless')
+driver = webdriver.Chrome(executable_path = '/home/val/coding/chromedriver', options = options)
 
 def fill_data_base(frame):
 # Automatic filling the data base with scraped information
@@ -56,7 +62,19 @@ def fill_data_base(frame):
 
 #frame = pd.read_csv('/home/val/coding/international_companies/trustpilot_data.csv')
 #encoding = 'unicode_escape'
-data_base = pd.read_csv('/home/val/coding/scrapy_projects/usa_gov_base.csv', encoding = 'unicode_escape') 
+data_base = pd.read_csv('/home/val/coding/scrapy_projects/trustpilot-task.csv', encoding = 'unicode_escape')
+columns = data_base.columns
+
+'''
+Index(['Company name', 'Unnamed: 1', 'url', 'email', 'phones', 'fax',
+       'address1', 'city', 'state', 'zip', 'facebook', 'pinterest',
+       'instagram', 'twitter', 'youtube', 'linkedin', 'privacy_policy_url',
+       'privacy_text', 'terms_and_conditions_url', 'terms_and_conditions_text',
+       'faq_url', 'faq_text', 'delivery_policy_url', 'delivery_text',
+       'return_policy_url', 'return_text', 'warranty_url', 'warranty_text'],
+      dtype='object')
+
+'''
 
 abbrs = { 'Alaska': 'AK', 'Alabama': 'AL', 'Arkansas': 'AR', 'Arizona': 'AZ', 'California': 'CA', 
             'Colorado': 'CO', 'Connecticut': 'CT', 'District-of-Columbia': 'DC', 'Delaware': 'DE', 
@@ -127,7 +145,7 @@ class BaseSpider(Spider):
 
     def _load_urls(self):
         #data_base = pd.read_csv('/home/val/coding/scrapy_projects/usa_gov_base.csv') 
-        return [link for link in data_base['website']]
+        return [link for link in data_base['url']]
 
     def start_requests(self):
      
@@ -142,6 +160,21 @@ class BaseSpider(Spider):
 
     def parse(self, response):
         data_frame = pd.DataFrame()
+
+        internal_links = {'contact_link': r'contact.*', 
+                            'privacy_link': r'privacy.*policy', 
+                            'delivery_link': r'(deliver|ship).*(policy)*', 
+                            'terms_link': r'term.*(condition|use|service)', 
+                            'faq_link': r'(faq)|(frequently.*asked.*question)', 
+                            'return_link': r'return.*', 
+                            'warranty_link': r'(warrant)|(certif)|(guarant)'}
+
+        external_links = {'twitter': 'twitter.com', 
+                            'facebook': 'facebook.com', 
+                            'pinterest':'pinterest.com', 
+                            'youtube': 'youtube.com',
+                            'linkedin': 'linkedin.com'}
+        #print(columns)
 
         def find_phones(response, contact_link):
             # data_base.loc[data_base.website == response.url]
@@ -208,7 +241,7 @@ class BaseSpider(Spider):
                 address = str(pyap.parse(soup.text, country='US')[0])
 
             except Exception as e:
-                print(e)
+                #print(e)
                 address = None
             try:
                 assert len(contact_link) > 0
@@ -220,14 +253,14 @@ class BaseSpider(Spider):
                                                                                                             'render_all': 1,
                                                                                                             'wait': 0.5}}})
             except Exception as e:
-                print(e)
+                #print(e)
                 pass
 
 
             return address
 
         def find_email(responce, contact_link):
-            email_pattern = '(^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$)'
+            email_pattern = '[A-Za-z0-9]*@{1}[A-Za-z0-9]*\.(com|org|de|edu|gov|uk){1}'
 
             soup = BeautifulSoup(response.body, 'lxml')
             for script in soup(["script", "style"]):
@@ -236,6 +269,9 @@ class BaseSpider(Spider):
             for each in soup.get_text().split('\n'):
                 try:
                     email_re = re.findall(email_pattern, each)
+                    #print(email_re)
+                    if len(email_re) > 0:
+                        print(email_re)
                     if len(email_re[0]) > 5 and len(email_re[0]) < 75:
                         email = email_re[0]
 
@@ -245,38 +281,16 @@ class BaseSpider(Spider):
                     try:
                         assert len(contact_link) > 0
                         if len(email) == 0:
-                            request = SeleniumRequest(url=contact_link, callback=find_email, meta={'splash': {'endpoint': 'render.html', 
-                                                                                                    'args': {'html': 1,
-                                                                                                            'png': 1,
-                                                                                                            'width': 600,
-                                                                                                            'render_all': 1,
-                                                                                                            'wait': 0.5}}})
+                            request = SeleniumRequest.follow(url=contact_link, callback=find_email, meta={'splash': {'endpoint': 'render.html', 
+                                                                                                                    'args': {'html': 1,
+                                                                                                                            'png': 1,
+                                                                                                                            'width': 600,
+                                                                                                                            'render_all': 1,
+                                                                                                                            'wait': 0.5}}})
                     except Exception as e:
                         email = None
 
             return email
-
-        def find_state_city(address):
-            try:
-                if len(address) > 0:
-                    #if len(frame['city_2']) > 0 and len(frame['state_2']) > 0:
-                       #pass
-                    #else:
-                    for ct in cities:
-                        if ct in frame['address']:
-                            city = ct
-                            break
-
-                    for st in abbrs.keys():
-                        if st in frame['address'] or abbrs[st] in frame['address']:
-                            state = st
-                            break
-                else:
-                    city = None
-                    state = None
-
-            except Exception:
-                return None, None
 
         def find_name(responce, contact_link):
             metas = ['@property="og:site_name"', '@property="og:title"']
@@ -294,88 +308,109 @@ class BaseSpider(Spider):
 
             return name
 
+        def validate_link(link, current_url):
+            if link.startswith('https://') == True or link.startswith('http://') == True or link.startswith('www.') == True:
+                return link
+            else:
+                if link.startswith('/') == True:
+                    return current_url+link.replace('//', '/')
+
+        def find_links(response):
+
+            links = {}
+            soup = BeautifulSoup(response.body, 'lxml')
+            for each in soup.find_all('a'):
+                for ext_key, ext_val in external_links.items():
+                    if ext_val in str(each.get('href')):
+                        links[ext_key] = validate_link(str(each.get('href')), current_url)
+                for int_key, int_val in internal_links.items():
+                    try:
+                        url = re.findall(int_val, each.get('href'))
+                        if len(url) > 0:
+                            links[int_key] = validate_link(str(each.get('href')), current_url)
+                    except Exception as e:
+                        pass
+            for each in external_links.keys():
+                try:
+                    assert len(links[each]) > 0
+                except Exception:
+                    links[each] = None
+            for each in internal_links.keys():
+                try:
+                    assert len(links[each]) > 0
+                except Exception:
+                    links[each] = None
+
+            return links
 
         frame = pd.Series()
 
-        columns=['category', 'name', 'website', 'toll-free', 'email', 'tty', 
-                'phone', 'state', 'level', 'name_2', 'complaint', 'state_2',
-                'city_2', 'address', 'phones_2', 'email_2', 'name_2']
-
-        ### exctract phones
         print(response.status, '---', response.url)
+        #print(type(response))
+        #frame['']
         if response.status == 200:   
-        #soup = BeautifulSoup(response.body, 'lxml')
-        #    new_urls = []
-        #    for link in soup.find_all('a'):
-        #        new_urls.append(link.get('href'))
-            #soup = BeautifulSoup(response.headers, 'lxml')
+
             current_url = response.url
             for url in response.xpath('//a/@href').re(r'.+?complaint.+?'):
                 if url.__contains__('http'):
                     complaint_link = url
                 else:
-                    tmp = current_url.split('/')
-                    if url.__contains__(tmp[2]):
-                        complaint_link = tmp[0] + url
-                    elif current_url[-1] == '/':
-                        complaint_link =current_url[:-1] + url
+                    if url.startswith('/'):
+                        complaint_link = current_url+url
                     else:
-                        complaint_link = current_url + url
+                        complaint_link = url
 
             for url in response.xpath('//a/@href').re(r'.+?contact.+?'):
                 if url.__contains__('http'):
                     contact_link = url
                 else:
-                    tmp = current_url.split('/')
-                    if url.__contains__(tmp[2]):
-                        contact_link = tmp[0] + url
-                    elif current_url[-1] == '/':
-                        contact_link =current_url[:-1] + url
+                    if url.startswith('/'):
+                        contact_link = current_url+url
                     else:
-                        contact_link = current_url + url
+                        contact_link = url
             try:
                 assert len(contact_link) > 0
             except Exception:
                 contact_link = ''
-            try:
-                frame['complaint_link'] = complaint_link
-            except UnboundLocalError:
-                frame['complaint_link'] = ''
-            frame['website'] = current_url
-            frame['phones_2'] = find_phones(response, contact_link)
+
+            frame['url'] = current_url
+            frame['phones'] = find_phones(response, contact_link)
             frame['address'] = find_address(response, contact_link)
-            frame['email_2'] = find_email(response, contact_link)
+            frame['email'] = find_email(response, contact_link)
             try:
-                frame['city_2'], frame['state_2'] = find_state_city(frame['address'])
+                address = address_parser.parse(frame['address'])
             except Exception:
-                frame['city_2'], frame['state_2'] = None, None
-            frame['name_2'] = find_name(response, contact_link)
-
-
-            #frame['index'] = index
-
+                pass
+            try:
+                frame['city'] = address.locality.city
+            except Exception as e:
+                print(e)
+                frame['city'] = None
+            try:
+                frame['state'] = address.locality.state
+            except Exception:
+                frame['state'] = None
+            try:
+                frame['zip'] = address.locality.zip
+            except Exception:
+                frame['zip'] = None
+            for key in external_links.keys():
+                try:
+                    frame[key] = find_links(response)[key]
+                except:
+                    frame[key] = None
+            for key in internal_links.keys():
+                try:
+                    frame[key] = find_links(response)[key]
+                except:
+                    frame[key] = None
 
         else:
-            frame['website'] = current_url
-            frame['phones_2'], frame['address'], frame['email_2'], frame['city_2'], \
-            frame['state_2'], frame['name_2'], frame['complaint_link'] = \
-            None, None, None, None, None, None, None
-
+            frame['url'] = current_url
 
         print(frame)
-        #print(response.xpath('//meta[@name="description"]/@content').getall()[0])
-        #response.xpath("//meta[@name='keywords']/@content")[0].extract()
         data_frame = data_frame.append(frame, ignore_index=True)
-        data_frame.to_csv('data_usa_gov_from_sites.csv', header=False, mode='a')
-        #index += 1
-
-
-
-            #print(phones) 
-            #frame phones = [phone+'\n' for phone in phones if phone != None]
-
-            ### extract address/city/state
-
+        data_frame.to_csv('trustpilot-results.csv', header=False, mode='a')
 
 
     def _get_url(self, responce):
@@ -412,7 +447,7 @@ class BaseSpider(Spider):
                  u'\ufffd', u'\u2018', u'\u2022', u'\xc0']
         for c in chars:
             string = string.replace(c, ' ')
-        print(string)
+        #print(string)
         return string
 
 
