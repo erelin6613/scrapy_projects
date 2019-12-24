@@ -1,12 +1,13 @@
 """ 
-    Update from 17-Dec-2019
+    Update from 24-Dec-2019
 
     Spider developed to scrape sites for Pissed Consumer;
     a good deal of functionality should be atributed to
     Vitaliy Bulah.
 
     Added task specific functionality to extract data
-    needed to accomplish the task at hand
+    needed to accomplish the task at hand (contacts 
+    extraction for this spider)
 """
 
 from scrapy import Spider
@@ -62,13 +63,11 @@ def fill_data_base(frame):
 
 #frame = pd.read_csv('/home/val/coding/international_companies/trustpilot_data.csv')
 #encoding = 'unicode_escape'
-data_base = pd.read_csv('/home/val/coding/scrapy_projects/companies_competitors-results.csv', encoding = 'unicode_escape')
+data_base = pd.read_csv('/home/val/coding/scrapy_projects/companies_merged_results.csv', encoding = 'unicode_escape')
 #company_dict = {}
 #for row, col in data_base.iterrows():
 #    company_dict[col] = row[col]
 columns = data_base.columns
-print(columns)
-exit()
 
 '''
 Index(['Company name', 'Unnamed: 1', 'url', 'email', 'phones', 'fax',
@@ -149,8 +148,17 @@ class BaseSpider(Spider):
         self.java_script = False
 
     def _load_urls(self):
-        #data_base = pd.read_csv('/home/val/coding/scrapy_projects/usa_gov_base.csv') 
-        return [link for link in data_base['contact_link']]
+        #data_base = pd.read_csv('/home/val/coding/scrapy_projects/usa_gov_base.csv')
+        links = []
+        link_columns = ['contact_link']
+        for col in link_columns:
+            for each in data_base[col]:
+                try:
+                    assert len(each) > 0
+                    links.append(each)
+                except Exception:
+                    pass
+        return links
 
     def start_requests(self):
      
@@ -182,67 +190,28 @@ class BaseSpider(Spider):
         #print(columns)
 
         def find_phones(response, contact_link):
-            pattern_phones = [r'\d\d\d[-.*, ]\d\d\d[-.*, ]\d\d\d\d', r'+\d\d\d\d[-.*, ]\d\d\d[-.*, ]\d\d\d\d', 
-                                r'\(\d\d\d\)[-.*, ]\d\d\d[-.*, ]\d\d\d\d', r'+\d\(\d\d\d\)[-.*, ]\d\d\d.[-.*, ]\d\d\d\d']
+
             soup = BeautifulSoup(response.body, 'lxml')
-            for script in soup(["script", "style"]):
-                script.extract()
-            text = soup.get_text().split('\n')
+
+            pattern_phones = [r'[(]?\d\d\d[)]?[-.*, ]?\d\d\d[-.*, ]?\d\d\d\d', 
+                                r'+\d[(]?\d\d\d[)]?[-.*, ]?\d\d\d[-.*, ]?\d\d\d\d']
             phones = []
-            i = 0
-            for item in text:
-                if len(item) <=1:
-                    continue
+            for each in soup.get_text().split('\n'):
+
                 for pattern in pattern_phones:
                     try:
-                        phone_re = re.search(pattern, each.text)
+                        phone_re = re.search(pattern, each)
                         if len(phone_re.group(0)) > 9 and len(phone_re.group(0)) < 15:
-                            company_dict['phone'] = phone_re.group(0)
+                            phones.append(phone_re.group(0))
                     except Exception as e:
-                        #print('Exception 20:', e)
                         pass
+                        #print(e)
+            str_phones = ''
+            for phone in phones:
+                if len(phones) > 1:
+                    str_phones += phone+'; '
 
-
-
-                if item.__contains__('@'):
-                    phones.append(['@', item])
-
-                if len(phone_numbers) == 0:
-                    continue
-
-                selected = []
-                for phone in phone_numbers:
-                    tmp = phone.replace(' ','').replace('(', '').replace(')', '').replace('-','').replace('_', '')
-                    if len(tmp)>=7:
-                        selected.append(phone)
-
-                if len(selected) > 0:
-                    phones.append(selected + [item])
-                i+=1
-            for each in phones:
-                for i in range(len(each)):
-                    each[i] = numerize_string(replace_numbers(each[i]))
-            phone_list = ''
-            for dim in phones:
-                for num in dim:
-                    try:
-                        if sum(c.isdigit() for c in num) > 6 and sum(c.isdigit() for c in num) < 11:
-                            phone_list = phone_list+num+'\n'
-                    except Exception:
-                        pass
-            try:
-                assert len(contact_link) > 0
-                if len(phone_list) == 0:
-                    request = SeleniumRequest(url=contact_link, callback=find_phones, meta={'splash': {'endpoint': 'render.html', 
-                                                                                                    'args': {'html': 1,
-                                                                                                            'png': 1,
-                                                                                                            'width': 600,
-                                                                                                            'render_all': 1,
-                                                                                                            'wait': 0.5}}})
-            except Exception:
-                pass
-
-            return phone_list
+            return str_phones
 
         def find_address(responce, contact_link):
             soup = BeautifulSoup(response.body, 'lxml')
@@ -268,11 +237,14 @@ class BaseSpider(Spider):
                 #print(e)
                 pass
 
-
-            return address
+            try:
+                return address
+            except Exception:
+                return None
 
         def find_email(responce, contact_link):
             email_pattern = '[A-Za-z0-9]*@{1}[A-Za-z0-9]*\.(com|org|de|edu|gov|uk){1}'
+            #email_pattern = '([a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+)'
 
             soup = BeautifulSoup(response.body, 'lxml')
             for script in soup(["script", "style"]):
@@ -280,16 +252,11 @@ class BaseSpider(Spider):
             #text = soup.get_text().split('\n')
             for each in soup.get_text().split('\n'):
                 try:
-                    email_re = re.findall(email_pattern, each)
-                    #print(email_re)
-                    if len(email_re) > 0:
-                        print(email_re)
-                    if len(email_re[0]) > 5 and len(email_re[0]) < 75:
-                        email = email_re[0]
+                    email_re = re.search(email_pattern, each)
+                    if len(email_re.group(0)) > 5 and len(email_re.group(0)) < 75:
+                        email = email_re.group(0)
 
                 except Exception as e:
-                    #print(e)
-                    pass
                     try:
                         assert len(contact_link) > 0
                         if len(email) == 0:
@@ -300,9 +267,13 @@ class BaseSpider(Spider):
                                                                                                                             'render_all': 1,
                                                                                                                             'wait': 0.5}}})
                     except Exception as e:
+                        #print(e)
                         email = None
+            try:
+                return email
+            except Exception:
+                return None
 
-            return email
 
         def find_name(responce, contact_link):
             metas = ['@property="og:site_name"', '@property="og:title"']
@@ -321,11 +292,22 @@ class BaseSpider(Spider):
             return name
 
         def validate_link(link, current_url):
+
+            discovered_bugs = {'/#/': '/', '.com/@': '.com/', '.org/@': '.org/','.edu/@': '.edu/', 
+                                '.uk/@': '.uk/', '.com#': '.com/', '.org#': '.org/', 
+                                '.edu#': '.edu/', '.uk#': '.uk/', '.com//': '.com/', 
+                                '.org//': '.org/', '.edu//': '.edu/', '.uk//': '.uk/'}
+
             if link.startswith('https://') == True or link.startswith('http://') == True or link.startswith('www.') == True:
                 return link
+
             else:
                 if link.startswith('/') == True:
                     return current_url+link.replace('//', '/')
+
+            for bug in discovered_bugs.keys():
+                if bug in link:
+                    link = link.replace(bug, discovered_bugs[bug])
 
         def find_links(response):
 
@@ -358,8 +340,7 @@ class BaseSpider(Spider):
         frame = pd.Series()
 
         print(response.status, '---', response.url)
-        #print(type(response))
-        #frame['']
+
         if response.status == 200:   
 
             current_url = response.url
@@ -396,7 +377,7 @@ class BaseSpider(Spider):
             try:
                 frame['city'] = address.locality.city
             except Exception as e:
-                print(e)
+                #print(e)
                 frame['city'] = None
             try:
                 frame['state'] = address.locality.state
@@ -422,7 +403,7 @@ class BaseSpider(Spider):
 
         print(frame)
         data_frame = data_frame.append(frame, ignore_index=True)
-        data_frame.to_csv('companies_competitors-results_ext.csv', header=False, mode='a')
+        data_frame.to_csv('companies_merged_results-contacts.csv', header=False, mode='a')
 
 
     def _get_url(self, responce):
